@@ -19,9 +19,13 @@ TOKEN_URL = "https://api.x.com/2/oauth2/token"
 
 SCOPES = "tweet.read tweet.write users.read offline.access"
 
+# Stockage temporaire pour notre première connexion
+oauth_data = {}
+
 
 def create_pkce():
     verifier = secrets.token_urlsafe(64)
+
     challenge = base64.urlsafe_b64encode(
         hashlib.sha256(verifier.encode()).digest()
     ).rstrip(b"=").decode()
@@ -37,10 +41,12 @@ def home():
 @app.route("/login")
 def login():
     verifier, challenge = create_pkce()
-
     state = secrets.token_urlsafe(32)
 
-    auth_params = {
+    oauth_data["state"] = state
+    oauth_data["verifier"] = verifier
+
+    params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -50,7 +56,7 @@ def login():
         "code_challenge_method": "S256",
     }
 
-    auth_url = AUTH_URL + "?" + urlencode(auth_params)
+    auth_url = AUTH_URL + "?" + urlencode(params)
 
     return redirect(auth_url)
 
@@ -62,15 +68,51 @@ def callback():
 
     if not code:
         return {
-            "message": "Aucun code OAuth reçu",
             "error": request.args.get("error"),
-            "error_description": request.args.get("error_description")
+            "message": "Aucun code OAuth reçu"
         }, 400
 
+    if state != oauth_data.get("state"):
+        return {
+            "error": "invalid_state",
+            "message": "Le state OAuth ne correspond pas."
+        }, 400
+
+    verifier = oauth_data.get("verifier")
+
+    token_data = {
+        "code": code,
+        "grant_type": "authorization_code",
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "code_verifier": verifier,
+    }
+
+    response = requests.post(
+        TOKEN_URL,
+        data=token_data,
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        return {
+            "error": "token_exchange_failed",
+            "status_code": response.status_code,
+            "response": response.text
+        }, 400
+
+    token = response.json()
+
+    # On supprime les données temporaires
+    oauth_data.clear()
+
     return {
-        "message": "Code OAuth reçu avec succès",
-        "code_received": True,
-        "state_received": bool(state)
+        "message": "Authentification X réussie",
+        "token_received": True,
+        "token_type": token.get("token_type"),
+        "scope": token.get("scope"),
+        "has_refresh_token": bool(token.get("refresh_token"))
     }
 
 
