@@ -108,11 +108,12 @@ def callback():
     oauth_data.clear()
 
     return {
-        "message": "Authentification X réussie",
-        "token_received": True,
-        "token_type": token.get("token_type"),
-        "scope": token.get("scope"),
-        "has_refresh_token": bool(token.get("refresh_token"))
+    "message": "Authentification X réussie",
+    "token_received": True,
+    "token_type": token.get("token_type"),
+    "scope": token.get("scope"),
+    "has_refresh_token": bool(token.get("refresh_token")),
+    "refresh_token": token.get("refresh_token")
     }
 
 
