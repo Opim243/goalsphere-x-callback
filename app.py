@@ -334,13 +334,6 @@ def publish_photo():
             headers={
                 "Authorization": f"Bearer {access_token}"
             },
-            files={
-                "media": (
-                    image.filename,
-                    image_data,
-                    media_type
-                )
-            },
             data={
                 "command": "INIT",
                 "media_type": media_type,
