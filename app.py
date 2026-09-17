@@ -22,6 +22,10 @@ SCOPES = "tweet.read tweet.write users.read offline.access"
 
 oauth_data = {}
 
+# Token X conservé pendant l'exécution du service Render
+access_token = None
+refresh_token = None
+
 
 def create_pkce():
     verifier = secrets.token_urlsafe(64)
@@ -63,6 +67,8 @@ def login():
 
 @app.route("/callback")
 def callback():
+    global access_token, refresh_token
+
     code = request.args.get("code")
     state = request.args.get("state")
 
@@ -115,6 +121,7 @@ def callback():
     token = token_response.json()
 
     access_token = token.get("access_token")
+    refresh_token = token.get("refresh_token")
 
     if not access_token:
         return {
@@ -123,54 +130,57 @@ def callback():
             "error": "Access token absent."
         }, 400
 
-    post_response = requests.post(
+    oauth_data.clear()
+
+    return {
+        "success": True,
+        "message": "Autorisation X réussie.",
+        "token_saved": True,
+        "refresh_token_received": bool(refresh_token),
+    }
+
+
+@app.route("/publish", methods=["POST"])
+def publish():
+    global access_token
+
+    data = request.get_json(silent=True) or {}
+    text = data.get("text")
+
+    if not text:
+        return {
+            "success": False,
+            "step": "publish",
+            "error": "missing_text",
+            "message": "Le texte de publication est obligatoire."
+        }, 400
+
+    if not access_token:
+        return {
+            "success": False,
+            "step": "authentication",
+            "error": "no_access_token",
+            "message": "Aucun access token. Autorisation nécessaire via /login."
+        }, 401
+
+    response = requests.post(
         POST_URL,
         headers={
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         },
         json={
-            "text": "⚽ Goal Sphere — premier test de publication automatique sur X 🚀"
+            "text": text
         },
         timeout=30,
     )
 
-    oauth_data.clear()
-
-    if post_response.status_code not in (200, 201):
-        return {
-            "success": False,
-            "step": "create_post",
-            "status_code": post_response.status_code,
-            "error": post_response.text,
-        }, 400
-
     return {
-        "success": True,
-        "message": "🎉 Publication X réussie !",
-        "post": post_response.json(),
-        "refresh_token_received": bool(token.get("refresh_token")),
-    }
-
-
-@app.route("/publish", methods=["POST"])
-def publish():
-    data = request.get_json(silent=True) or {}
-
-    text = data.get("text")
-
-    if not text:
-        return {
-            "success": False,
-            "error": "missing_text",
-            "message": "Le texte de publication est obligatoire."
-        }, 400
-
-    return {
-        "success": False,
-        "step": "publish",
-        "message": "Route /publish prête. La gestion du token permanent sera ajoutée avant l'automatisation."
-    }, 501
+        "success": response.status_code in (200, 201),
+        "step": "create_post",
+        "status_code": response.status_code,
+        "x_response": response.text,
+    }, response.status_code
 
 
 if __name__ == "__main__":
