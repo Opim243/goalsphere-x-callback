@@ -5,12 +5,14 @@ import secrets
 from urllib.parse import urlencode
 
 import requests
+import psycopg
 from flask import Flask, request, redirect
 
 app = Flask(__name__)
 
 CLIENT_ID = os.environ.get("X_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("X_CLIENT_SECRET")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 REDIRECT_URI = "https://goalsphere-x-callback.onrender.com/callback"
 
@@ -22,10 +24,89 @@ SCOPES = "tweet.read tweet.write users.read offline.access"
 
 oauth_data = {}
 
-# Token X conservé pendant l'exécution du service Render
-access_token = None
-refresh_token = None
 
+# ============================================================
+# DATABASE
+# ============================================================
+
+def init_database():
+    if not DATABASE_URL:
+        print("ERREUR : DATABASE_URL absente.")
+        return
+
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS x_tokens (
+                        id INTEGER PRIMARY KEY,
+                        access_token TEXT,
+                        refresh_token TEXT
+                    )
+                """)
+            conn.commit()
+
+        print("Base PostgreSQL initialisée.")
+
+    except Exception as e:
+        print(f"ERREUR PostgreSQL : {e}")
+
+
+def save_tokens(access_token, refresh_token=None):
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+
+                cur.execute("""
+                    INSERT INTO x_tokens (id, access_token, refresh_token)
+                    VALUES (1, %s, %s)
+                    ON CONFLICT (id)
+                    DO UPDATE SET
+                        access_token = EXCLUDED.access_token,
+                        refresh_token = COALESCE(
+                            EXCLUDED.refresh_token,
+                            x_tokens.refresh_token
+                        )
+                """, (access_token, refresh_token))
+
+            conn.commit()
+
+        print("Tokens sauvegardés dans PostgreSQL.")
+        return True
+
+    except Exception as e:
+        print(f"ERREUR sauvegarde tokens : {e}")
+        return False
+
+
+def load_tokens():
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+
+                cur.execute("""
+                    SELECT access_token, refresh_token
+                    FROM x_tokens
+                    WHERE id = 1
+                """)
+
+                row = cur.fetchone()
+
+        if row:
+            print("Tokens récupérés depuis PostgreSQL.")
+            return row[0], row[1]
+
+        print("Aucun token trouvé dans PostgreSQL.")
+        return None, None
+
+    except Exception as e:
+        print(f"ERREUR lecture PostgreSQL : {e}")
+        return None, None
+
+
+# ============================================================
+# PKCE
+# ============================================================
 
 def create_pkce():
     verifier = secrets.token_urlsafe(64)
@@ -36,6 +117,55 @@ def create_pkce():
 
     return verifier, challenge
 
+
+# ============================================================
+# REFRESH TOKEN
+# ============================================================
+
+def refresh_access_token():
+    access_token, refresh_token = load_tokens()
+
+    if not refresh_token:
+        print("Aucun refresh token disponible.")
+        return None
+
+    print("Tentative de renouvellement du token X...")
+
+    response = requests.post(
+        TOKEN_URL,
+        data={
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        timeout=30,
+    )
+
+    print(f"Refresh HTTP Status : {response.status_code}")
+    print(f"Refresh réponse X : {response.text}")
+
+    if response.status_code != 200:
+        return None
+
+    token = response.json()
+
+    new_access_token = token.get("access_token")
+    new_refresh_token = token.get("refresh_token")
+
+    if not new_access_token:
+        return None
+
+    save_tokens(
+        new_access_token,
+        new_refresh_token
+    )
+
+    return new_access_token
+
+
+# ============================================================
+# ROUTES
+# ============================================================
 
 @app.route("/")
 def home():
@@ -67,7 +197,6 @@ def login():
 
 @app.route("/callback")
 def callback():
-    global access_token, refresh_token
 
     code = request.args.get("code")
     state = request.args.get("state")
@@ -130,6 +259,19 @@ def callback():
             "error": "Access token absent."
         }, 400
 
+    # Sauvegarde permanente dans PostgreSQL
+    saved = save_tokens(
+        access_token,
+        refresh_token
+    )
+
+    if not saved:
+        return {
+            "success": False,
+            "step": "database",
+            "error": "Impossible de sauvegarder les tokens."
+        }, 500
+
     oauth_data.clear()
 
     return {
@@ -137,12 +279,12 @@ def callback():
         "message": "Autorisation X réussie.",
         "token_saved": True,
         "refresh_token_received": bool(refresh_token),
+        "storage": "PostgreSQL",
     }
 
 
 @app.route("/publish", methods=["POST"])
 def publish():
-    global access_token
 
     data = request.get_json(silent=True) or {}
     text = data.get("text")
@@ -155,6 +297,9 @@ def publish():
             "message": "Le texte de publication est obligatoire."
         }, 400
 
+    # Récupération depuis PostgreSQL
+    access_token, refresh_token = load_tokens()
+
     if not access_token:
         return {
             "success": False,
@@ -163,6 +308,7 @@ def publish():
             "message": "Aucun access token. Autorisation nécessaire via /login."
         }, 401
 
+    # Première tentative
     response = requests.post(
         POST_URL,
         headers={
@@ -175,6 +321,40 @@ def publish():
         timeout=30,
     )
 
+    print(f"Publication HTTP Status : {response.status_code}")
+    print(f"Réponse X : {response.text}")
+
+    # Si le token est refusé, tentative de renouvellement
+    if response.status_code in (401, 403):
+
+        print("Token probablement invalide. Tentative de refresh...")
+
+        new_access_token = refresh_access_token()
+
+        if new_access_token:
+
+            response = requests.post(
+                POST_URL,
+                headers={
+                    "Authorization": f"Bearer {new_access_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "text": text
+                },
+                timeout=30,
+            )
+
+            print(
+                f"Nouvelle tentative HTTP Status : "
+                f"{response.status_code}"
+            )
+
+            print(
+                f"Nouvelle réponse X : "
+                f"{response.text}"
+            )
+
     return {
         "success": response.status_code in (200, 201),
         "step": "create_post",
@@ -183,5 +363,15 @@ def publish():
     }, response.status_code
 
 
+# ============================================================
+# STARTUP
+# ============================================================
+
+init_database()
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(
+        host="0.0.0.0",
+        port=5000
+                )
