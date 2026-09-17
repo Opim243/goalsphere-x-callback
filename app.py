@@ -282,6 +282,200 @@ def callback():
         "storage": "PostgreSQL",
     }
 
+@app.route("/publish-photo", methods=["POST"])
+def publish_photo():
+    try:
+        # Vérifier qu'une image a été envoyée
+        if "image" not in request.files:
+            return {
+                "success": False,
+                "step": "upload",
+                "error": "Aucune image reçue."
+            }, 400
+
+        image = request.files["image"]
+
+        if not image.filename:
+            return {
+                "success": False,
+                "step": "upload",
+                "error": "Nom de fichier absent."
+            }, 400
+
+        # Texte du post
+        text = request.form.get("text", "")
+
+        # Récupérer le token depuis PostgreSQL
+        access_token, refresh_token = load_tokens()
+
+        if not access_token:
+            return {
+                "success": False,
+                "step": "authentication",
+                "error": "no_access_token"
+            }, 401
+
+        image_data = image.read()
+        total_bytes = len(image_data)
+        media_type = image.content_type or "image/jpeg"
+
+        print("========================================")
+        print("Début publication avec photo")
+        print(f"Image : {image.filename}")
+        print(f"Type : {media_type}")
+        print(f"Taille : {total_bytes} octets")
+
+        # ====================================================
+        # 1. INIT
+        # ====================================================
+
+        init_response = requests.post(
+            "https://api.x.com/2/media/upload",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            files={
+                "media": (
+                    image.filename,
+                    image_data,
+                    media_type
+                )
+            },
+            data={
+                "command": "INIT",
+                "media_type": media_type,
+                "total_bytes": str(total_bytes),
+                "media_category": "tweet_image"
+            },
+            timeout=60
+        )
+
+        print(f"MEDIA INIT HTTP : {init_response.status_code}")
+        print(f"MEDIA INIT X : {init_response.text}")
+
+        if init_response.status_code not in (200, 201):
+            return {
+                "success": False,
+                "step": "media_init",
+                "status_code": init_response.status_code,
+                "x_response": init_response.text
+            }, init_response.status_code
+
+        init_data = init_response.json()
+        media_id = init_data["data"]["id"]
+
+        print(f"Media ID : {media_id}")
+
+        # ====================================================
+        # 2. APPEND
+        # ====================================================
+
+        append_response = requests.post(
+            "https://api.x.com/2/media/upload",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            files={
+                "media": (
+                    image.filename,
+                    image_data,
+                    media_type
+                )
+            },
+            data={
+                "command": "APPEND",
+                "media_id": media_id,
+                "segment_index": "0"
+            },
+            timeout=60
+        )
+
+        print(f"MEDIA APPEND HTTP : {append_response.status_code}")
+        print(f"MEDIA APPEND X : {append_response.text}")
+
+        if append_response.status_code not in (200, 201):
+            return {
+                "success": False,
+                "step": "media_append",
+                "media_id": media_id,
+                "status_code": append_response.status_code,
+                "x_response": append_response.text
+            }, append_response.status_code
+
+        # ====================================================
+        # 3. FINALIZE
+        # ====================================================
+
+        finalize_response = requests.post(
+            "https://api.x.com/2/media/upload",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            files={
+                "media": (
+                    "",
+                    b"",
+                    "application/octet-stream"
+                )
+            },
+            data={
+                "command": "FINALIZE",
+                "media_id": media_id
+            },
+            timeout=60
+        )
+
+        print(f"MEDIA FINALIZE HTTP : {finalize_response.status_code}")
+        print(f"MEDIA FINALIZE X : {finalize_response.text}")
+
+        if finalize_response.status_code not in (200, 201):
+            return {
+                "success": False,
+                "step": "media_finalize",
+                "media_id": media_id,
+                "status_code": finalize_response.status_code,
+                "x_response": finalize_response.text
+            }, finalize_response.status_code
+
+        # ====================================================
+        # 4. CRÉER LE POST
+        # ====================================================
+
+        post_response = requests.post(
+            URL_POST,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "text": text,
+                "media": {
+                    "media_ids": [media_id]
+                }
+            },
+            timeout=60
+        )
+
+        print(f"POST PHOTO HTTP : {post_response.status_code}")
+        print(f"POST PHOTO X : {post_response.text}")
+        print("========================================")
+
+        return {
+            "success": post_response.status_code in (200, 201),
+            "step": "create_post",
+            "media_id": media_id,
+            "status_code": post_response.status_code,
+            "x_response": post_response.text
+        }, post_response.status_code
+
+    except Exception as e:
+        print(f"ERREUR PHOTO : {e}")
+
+        return {
+            "success": False,
+            "step": "exception",
+            "error": str(e)
+        }, 500
 
 @app.route("/publish", methods=["POST"])
 def publish():
