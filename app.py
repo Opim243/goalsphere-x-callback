@@ -56,7 +56,9 @@ def login():
         "code_challenge_method": "S256",
     }
 
-    return redirect(AUTH_URL + "?" + urlencode(params))
+    authorization_url = AUTH_URL + "?" + urlencode(params)
+
+    return redirect(authorization_url)
 
 
 @app.route("/callback")
@@ -67,6 +69,7 @@ def callback():
     if not code:
         return {
             "success": False,
+            "step": "authorization",
             "error": request.args.get("error"),
             "message": "Aucun code OAuth reçu."
         }, 400
@@ -74,11 +77,20 @@ def callback():
     if state != oauth_data.get("state"):
         return {
             "success": False,
+            "step": "state",
             "error": "invalid_state",
             "message": "Le state OAuth ne correspond pas."
         }, 400
 
     verifier = oauth_data.get("verifier")
+
+    if not verifier:
+        return {
+            "success": False,
+            "step": "pkce",
+            "error": "missing_verifier",
+            "message": "Code PKCE introuvable."
+        }, 400
 
     token_response = requests.post(
         TOKEN_URL,
@@ -101,6 +113,7 @@ def callback():
         }, 400
 
     token = token_response.json()
+
     access_token = token.get("access_token")
 
     if not access_token:
@@ -134,44 +147,6 @@ def callback():
 
     return {
         "success": True,
-        "message": "Publication X réussie !",
-        "post": post_response.json(),
-        "refresh_token_received": bool(token.get("refresh_token")),
-    }
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)        return {
-            "success": False,
-            "step": "access_token",
-            "error": "Access token absent."
-        }, 400
-
-    # Utiliser immédiatement l'Access Token obtenu
-    post_response = requests.post(
-        POST_URL,
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "text": "⚽ Goal Sphere — premier test de publication automatique sur X 🚀"
-        },
-        timeout=30,
-    )
-
-    oauth_data.clear()
-
-    if post_response.status_code not in (200, 201):
-        return {
-            "success": False,
-            "step": "create_post",
-            "status_code": post_response.status_code,
-            "error": post_response.text,
-        }, 400
-
-    return {
-        "success": True,
         "message": "🎉 Publication X réussie !",
         "post": post_response.json(),
         "refresh_token_received": bool(token.get("refresh_token")),
@@ -179,4 +154,4 @@ if __name__ == "__main__":
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)     
+    app.run(host="0.0.0.0", port=5000)
