@@ -166,7 +166,7 @@ def test_post():
             "error": "X_REFRESH_TOKEN absent"
         }, 500
 
-    # 1. Obtenir un nouvel access token
+    # Obtenir un nouvel access token
     token_data = {
         "refresh_token": refresh_token,
         "grant_type": "refresh_token",
@@ -188,9 +188,18 @@ def test_post():
             "error": token_response.text
         }, 400
 
-    access_token = token_response.json().get("access_token")
+    token = token_response.json()
+    access_token = token.get("access_token")
+    new_refresh_token = token.get("refresh_token")
 
-    # 2. Publier le post
+    if not access_token:
+        return {
+            "posted": False,
+            "step": "access_token",
+            "error": "Access token absent"
+        }, 400
+
+    # Publier sur X
     post_response = requests.post(
         "https://api.x.com/2/tweets",
         headers={
@@ -211,11 +220,19 @@ def test_post():
             "error": post_response.text
         }, 400
 
-    return {
+    result = {
         "posted": True,
         "message": "Post publié avec succès sur X.",
         "response": post_response.json()
     }
+
+    # Indique seulement qu'un nouveau refresh token existe.
+    # Ne l'affiche pas dans le navigateur.
+    if new_refresh_token:
+        result["new_refresh_token_received"] = True
+        result["action"] = "Mettre à jour X_REFRESH_TOKEN dans Render avec le nouveau refresh token."
+
+    return result
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
