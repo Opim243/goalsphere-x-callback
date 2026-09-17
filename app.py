@@ -156,5 +156,66 @@ def test_auth():
         "has_refresh_token": bool(token.get("refresh_token"))
     }
 
+@app.route("/test-post")
+def test_post():
+    refresh_token = os.environ.get("X_REFRESH_TOKEN")
+
+    if not refresh_token:
+        return {
+            "posted": False,
+            "error": "X_REFRESH_TOKEN absent"
+        }, 500
+
+    # 1. Obtenir un nouvel access token
+    token_data = {
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+        "client_id": CLIENT_ID
+    }
+
+    token_response = requests.post(
+        TOKEN_URL,
+        data=token_data,
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        timeout=30
+    )
+
+    if token_response.status_code != 200:
+        return {
+            "posted": False,
+            "step": "refresh_token",
+            "status_code": token_response.status_code,
+            "error": token_response.text
+        }, 400
+
+    access_token = token_response.json().get("access_token")
+
+    # 2. Publier le post
+    post_response = requests.post(
+        "https://api.x.com/2/tweets",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": "⚽ Goal Sphere est maintenant connecté à X. Premier test d'automatisation réussi. 🚀"
+        },
+        timeout=30
+    )
+
+    if post_response.status_code not in [200, 201]:
+        return {
+            "posted": False,
+            "step": "create_post",
+            "status_code": post_response.status_code,
+            "error": post_response.text
+        }, 400
+
+    return {
+        "posted": True,
+        "message": "Post publié avec succès sur X.",
+        "response": post_response.json()
+    }
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
