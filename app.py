@@ -116,6 +116,45 @@ def callback():
     "refresh_token": token.get("refresh_token")
     }
 
+@app.route("/test-auth")
+def test_auth():
+    refresh_token = os.environ.get("X_REFRESH_TOKEN")
+
+    if not refresh_token:
+        return {
+            "authenticated": False,
+            "error": "X_REFRESH_TOKEN absent"
+        }, 500
+
+    data = {
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+        "client_id": CLIENT_ID
+    }
+
+    response = requests.post(
+        TOKEN_URL,
+        data=data,
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        return {
+            "authenticated": False,
+            "status_code": response.status_code,
+            "error": response.text
+        }, 400
+
+    token = response.json()
+
+    return {
+        "authenticated": True,
+        "token_type": token.get("token_type"),
+        "scope": token.get("scope"),
+        "has_access_token": bool(token.get("access_token")),
+        "has_refresh_token": bool(token.get("refresh_token"))
+    }
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
