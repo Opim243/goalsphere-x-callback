@@ -345,6 +345,7 @@ def publish_photo():
 
         print(f"MEDIA INIT HTTP : {init_response.status_code}")
         print(f"MEDIA INIT X : {init_response.text}")
+        print(f"MEDIA INIT HEADERS : {dict(init_response.headers)}")
 
         if init_response.status_code not in (200, 201):
             return {
