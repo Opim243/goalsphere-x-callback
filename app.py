@@ -16,10 +16,10 @@ REDIRECT_URI = "https://goalsphere-x-callback.onrender.com/callback"
 
 AUTH_URL = "https://twitter.com/i/oauth2/authorize"
 TOKEN_URL = "https://api.x.com/2/oauth2/token"
+POST_URL = "https://api.x.com/2/tweets"
 
 SCOPES = "tweet.read tweet.write users.read offline.access"
 
-# Stockage temporaire pour notre première connexion
 oauth_data = {}
 
 
@@ -83,7 +83,6 @@ def callback():
     token_data = {
         "code": code,
         "grant_type": "authorization_code",
-        "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "code_verifier": verifier,
     }
@@ -104,8 +103,96 @@ def callback():
 
     token = response.json()
 
-    # On supprime les données temporaires
     oauth_data.clear()
+
+    return {
+        "message": "Authentification X réussie",
+        "token_received": True,
+        "token_type": token.get("token_type"),
+        "scope": token.get("scope"),
+        "has_refresh_token": bool(token.get("refresh_token"))
+    }
+
+
+@app.route("/test-post")
+def test_post():
+    refresh_token = os.environ.get("X_REFRESH_TOKEN")
+
+    if not refresh_token:
+        return {
+            "posted": False,
+            "error": "X_REFRESH_TOKEN absent"
+        }, 500
+
+    # 1. Utiliser le refresh token UNE SEULE FOIS
+    token_response = requests.post(
+        TOKEN_URL,
+        data={
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        timeout=30
+    )
+
+    if token_response.status_code != 200:
+        return {
+            "posted": False,
+            "step": "refresh_token",
+            "status_code": token_response.status_code,
+            "error": token_response.text
+        }, 400
+
+    token = token_response.json()
+
+    access_token = token.get("access_token")
+    new_refresh_token = token.get("refresh_token")
+
+    if not access_token:
+        return {
+            "posted": False,
+            "step": "access_token",
+            "error": "Access token absent"
+        }, 400
+
+    # 2. Utiliser immédiatement le nouvel access token
+    post_response = requests.post(
+        POST_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": "⚽ Goal Sphere est maintenant connecté à X. Premier test d'automatisation réussi. 🚀"
+        },
+        timeout=30
+    )
+
+    if post_response.status_code not in [200, 201]:
+        return {
+            "posted": False,
+            "step": "create_post",
+            "status_code": post_response.status_code,
+            "error": post_response.text
+        }, 400
+
+    result = {
+        "posted": True,
+        "message": "Post publié avec succès sur X.",
+        "post_response": post_response.json()
+    }
+
+    # Indique si X a fourni un nouveau refresh token
+    if new_refresh_token:
+        result["new_refresh_token_received"] = True
+    else:
+        result["new_refresh_token_received"] = False
+
+    return result
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)    oauth_data.clear()
 
     return {
     "message": "Authentification X réussie",
