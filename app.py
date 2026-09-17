@@ -101,11 +101,47 @@ def callback():
         }, 400
 
     token = token_response.json()
-
     access_token = token.get("access_token")
 
     if not access_token:
         return {
+            "success": False,
+            "step": "access_token",
+            "error": "Access token absent."
+        }, 400
+
+    post_response = requests.post(
+        POST_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "text": "⚽ Goal Sphere — premier test de publication automatique sur X 🚀"
+        },
+        timeout=30,
+    )
+
+    oauth_data.clear()
+
+    if post_response.status_code not in (200, 201):
+        return {
+            "success": False,
+            "step": "create_post",
+            "status_code": post_response.status_code,
+            "error": post_response.text,
+        }, 400
+
+    return {
+        "success": True,
+        "message": "Publication X réussie !",
+        "post": post_response.json(),
+        "refresh_token_received": bool(token.get("refresh_token")),
+    }
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)        return {
             "success": False,
             "step": "access_token",
             "error": "Access token absent."
