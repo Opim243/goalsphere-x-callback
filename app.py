@@ -66,19 +66,21 @@ def callback():
 
     if not code:
         return {
+            "success": False,
             "error": request.args.get("error"),
-            "message": "Aucun code OAuth reçu"
+            "message": "Aucun code OAuth reçu."
         }, 400
 
     if state != oauth_data.get("state"):
         return {
+            "success": False,
             "error": "invalid_state",
             "message": "Le state OAuth ne correspond pas."
         }, 400
 
     verifier = oauth_data.get("verifier")
 
-    response = requests.post(
+    token_response = requests.post(
         TOKEN_URL,
         data={
             "code": code,
@@ -87,25 +89,61 @@ def callback():
             "code_verifier": verifier,
         },
         auth=(CLIENT_ID, CLIENT_SECRET),
-        timeout=30
+        timeout=30,
     )
 
-    if response.status_code != 200:
+    if token_response.status_code != 200:
         return {
-            "error": "token_exchange_failed",
-            "status_code": response.status_code,
-            "response": response.text
+            "success": False,
+            "step": "token_exchange",
+            "status_code": token_response.status_code,
+            "error": token_response.text,
         }, 400
 
-    token = response.json()
+    token = token_response.json()
+
+    access_token = token.get("access_token")
+
+    if not access_token:
+        return {
+            "success": False,
+            "step": "access_token",
+            "error": "Access token absent."
+        }, 400
+
+    # Utiliser immédiatement l'Access Token obtenu
+    post_response = requests.post(
+        POST_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "text": "⚽ Goal Sphere — premier test de publication automatique sur X 🚀"
+        },
+        timeout=30,
+    )
 
     oauth_data.clear()
 
+    if post_response.status_code not in (200, 201):
+        return {
+            "success": False,
+            "step": "create_post",
+            "status_code": post_response.status_code,
+            "error": post_response.text,
+        }, 400
+
     return {
-        "message": "Authentification X réussie",
-        "token_received": True,
-        "scope": token.get("scope"),
-        "has_refresh_token": bool(token.get("refresh_token"))
+        "success": True,
+        "message": "🎉 Publication X réussie !",
+        "post": post_response.json(),
+        "refresh_token_received": bool(token.get("refresh_token")),
+    }
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)        "has_refresh_token": bool(token.get("refresh_token"))
     }
 
 
