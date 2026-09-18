@@ -367,86 +367,55 @@ def publish_photo():
         print(f"Media ID : {media_id}")
 
         # ====================================================
-        # 5. Récupérer le token OAuth 2 actuel
+        # 5. Créer le client X avec OAuth 1.0a
         # ====================================================
 
-        access_token, refresh_token = load_tokens()
-
-        if not access_token:
-            return {
-                "success": False,
-                "step": "authentication",
-                "error": "no_oauth2_access_token"
-            }, 401
-
+        client = tweepy.Client(
+    consumer_key=X_CONSUMER_KEY,
+    consumer_secret=X_CONSUMER_SECRET,
+    access_token=X_ACCESS_TOKEN,
+    access_token_secret=X_ACCESS_TOKEN_SECRET
+        )
         # ====================================================
-        # 6. Créer le post avec OAuth 2
+        # 6. Publier le post avec la photo
         # ====================================================
 
-        post_response = requests.post(
-            POST_URL,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "text": text,
-                "media": {
-                    "media_ids": [str(media_id)]
-                }
-            },
-            timeout=60
+        response = client.create_tweet(
+            text=text,
+            media_ids=[media_id]
         )
 
-        print(f"POST PHOTO HTTP : {post_response.status_code}")
-        print(f"POST PHOTO X : {post_response.text}")
+        print("POST PHOTO RÉUSSI")
+        print(f"X RESPONSE : {response}")
         print("========================================")
 
-        # ====================================================
-        # 7. Si OAuth 2 est expiré → refresh
-        # ====================================================
-
-        if post_response.status_code in (401, 403):
-
-            print("Token OAuth 2 refusé.")
-            print("Tentative de renouvellement...")
-
-            new_access_token = refresh_access_token()
-
-            if new_access_token:
-
-                post_response = requests.post(
-                    POST_URL,
-                    headers={
-                        "Authorization": f"Bearer {new_access_token}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "text": text,
-                        "media": {
-                            "media_ids": [str(media_id)]
-                        }
-                    },
-                    timeout=60
-                )
-
-                print(
-                    f"Nouvelle tentative POST PHOTO : "
-                    f"{post_response.status_code}"
-                )
-
-                print(
-                    f"Nouvelle réponse X : "
-                    f"{post_response.text}"
-                )
-
         return {
-            "success": post_response.status_code in (200, 201),
+            "success": True,
             "step": "create_post",
             "media_id": str(media_id),
-            "status_code": post_response.status_code,
-            "x_response": post_response.text
-        }, post_response.status_code
+            "status_code": 201,
+            "x_response": str(response)
+        }, 201
+
+    except tweepy.TweepyException as e:
+
+        print(f"ERREUR TWEEPY : {e}")
+
+        return {
+            "success": False,
+            "step": "media_upload",
+            "error": str(e)
+        }, 500
+
+    except Exception as e:
+
+        print(f"ERREUR PHOTO : {e}")
+
+        return {
+            "success": False,
+            "step": "exception",
+            "error": str(e)
+        }, 500
 
     except tweepy.TweepyException as e:
 
