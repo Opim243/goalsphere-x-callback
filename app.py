@@ -376,6 +376,14 @@ def publish_photo():
             # 5. Upload de l'image avec OAuth 1.0a
             # ====================================================
 
+
+            print("=== DEBUG OAUTH1 ===")
+            print("Consumer Key présent :", bool(X_CONSUMER_KEY))
+            print("Consumer Secret présent :", bool(X_CONSUMER_SECRET))
+            print("Access Token présent :", bool(X_ACCESS_TOKEN))
+            print("Access Token Secret présent :", bool(X_ACCESS_TOKEN_SECRET))
+            print("Longueur Consumer Key :", len(X_CONSUMER_KEY or ""))
+            print("Longueur Access Token :", len(X_ACCESS_TOKEN or ""))
             media = api.media_upload(
                 filename=temp_path
             )
