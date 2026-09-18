@@ -353,55 +353,77 @@ def publish_photo():
         api = tweepy.API(auth)
 
         # ====================================================
-        # 4. Upload de l'image
+        # 4. Sauvegarder temporairement l'image
         # ====================================================
 
-        image_data = image.read()
+        import tempfile
 
-        print(f"Taille : {len(image_data)} octets")
-        print("Upload de l'image vers X...")
-
-        media = api.media_upload(
-            filename=image.filename,
-            file=__import__("io").BytesIO(image_data)
+        temp_file = tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=os.path.splitext(image.filename)[1]
         )
 
-        media_id = media.media_id
+        temp_path = temp_file.name
 
-        print("Image uploadée avec succès.")
-        print(f"Media ID : {media_id}")
+        try:
+            image.save(temp_path)
+            temp_file.close()
 
-        # ====================================================
-        # 5. Créer le client X avec OAuth 1.0a
-        # ====================================================
+            print(f"Image temporaire : {temp_path}")
+            print("Upload de l'image vers X...")
 
-        client = tweepy.Client(
-            consumer_key=X_CONSUMER_KEY,
-            consumer_secret=X_CONSUMER_SECRET,
-            access_token=X_ACCESS_TOKEN,
-            access_token_secret=X_ACCESS_TOKEN_SECRET
-        )
+            # ====================================================
+            # 5. Upload de l'image avec OAuth 1.0a
+            # ====================================================
 
-        # ====================================================
-        # 6. Publier le post avec la photo
-        # ====================================================
+            media = api.media_upload(
+                filename=temp_path
+            )
 
-        response = client.create_tweet(
-            text=text,
-            media_ids=[media_id]
-        )
+            media_id = media.media_id
 
-        print("POST PHOTO RÉUSSI")
-        print(f"X RESPONSE : {response}")
-        print("========================================")
+            print("Image uploadée avec succès.")
+            print(f"Media ID : {media_id}")
 
-        return {
-            "success": True,
-            "step": "create_post",
-            "media_id": str(media_id),
-            "status_code": 201,
-            "x_response": str(response)
-        }, 201
+            # ====================================================
+            # 6. Créer le client X avec OAuth 1.0a
+            # ====================================================
+
+            client = tweepy.Client(
+                consumer_key=X_CONSUMER_KEY,
+                consumer_secret=X_CONSUMER_SECRET,
+                access_token=X_ACCESS_TOKEN,
+                access_token_secret=X_ACCESS_TOKEN_SECRET
+            )
+
+            # ====================================================
+            # 7. Publier le post avec la photo
+            # ====================================================
+
+            response = client.create_tweet(
+                text=text,
+                media_ids=[media_id]
+            )
+
+            print("POST PHOTO RÉUSSI")
+            print(f"X RESPONSE : {response}")
+            print("========================================")
+
+            return {
+                "success": True,
+                "step": "create_post",
+                "media_id": str(media_id),
+                "status_code": 201,
+                "x_response": str(response)
+            }, 201
+
+        finally:
+            # Suppression du fichier temporaire
+            try:
+                os.remove(temp_path)
+                print("Image temporaire supprimée.")
+            except Exception:
+                pass
 
     except tweepy.TweepyException as e:
 
@@ -422,8 +444,7 @@ def publish_photo():
             "step": "exception",
             "error": str(e)
         }, 500
-
-
+        
 # ============================================================
 # PUBLICATION TEXTE X
 # ============================================================
