@@ -6,12 +6,19 @@ from urllib.parse import urlencode
 
 import requests
 import psycopg
+import tweepy
 from flask import Flask, request, redirect
 
 app = Flask(__name__)
 
 CLIENT_ID = os.environ.get("X_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("X_CLIENT_SECRET")
+
+X_CONSUMER_KEY = os.environ.get("X_CONSUMER_KEY")
+X_CONSUMER_SECRET = os.environ.get("X_CONSUMER_SECRET")
+X_ACCESS_TOKEN = os.environ.get("X_ACCESS_TOKEN")
+X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET")
+
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 REDIRECT_URI = "https://goalsphere-x-callback.onrender.com/callback"
@@ -285,7 +292,10 @@ def callback():
 @app.route("/publish-photo", methods=["POST"])
 def publish_photo():
     try:
-        # Vérifier qu'une image a été envoyée
+        # ====================================================
+        # 1. Vérifier l'image
+        # ====================================================
+
         if "image" not in request.files:
             return {
                 "success": False,
@@ -302,141 +312,79 @@ def publish_photo():
                 "error": "Nom de fichier absent."
             }, 400
 
-        # Texte du post
         text = request.form.get("text", "")
 
-        # Récupérer le token depuis PostgreSQL
+        print("========================================")
+        print("Début publication avec photo")
+        print(f"Image : {image.filename}")
+
+        # ====================================================
+        # 2. Vérifier OAuth 1.0a
+        # ====================================================
+
+        if not all([
+            X_CONSUMER_KEY,
+            X_CONSUMER_SECRET,
+            X_ACCESS_TOKEN,
+            X_ACCESS_TOKEN_SECRET
+        ]):
+            return {
+                "success": False,
+                "step": "authentication",
+                "error": "oauth1_credentials_missing"
+            }, 500
+
+        # ====================================================
+        # 3. Créer le client OAuth 1.0a
+        # ====================================================
+
+        auth = tweepy.OAuth1UserHandler(
+            X_CONSUMER_KEY,
+            X_CONSUMER_SECRET,
+            X_ACCESS_TOKEN,
+            X_ACCESS_TOKEN_SECRET
+        )
+
+        api = tweepy.API(auth)
+
+        # ====================================================
+        # 4. Upload de l'image
+        # ====================================================
+
+        image_data = image.read()
+
+        print(f"Taille : {len(image_data)} octets")
+        print("Upload de l'image vers X...")
+
+        media = api.media_upload(
+            filename=image.filename,
+            file=__import__("io").BytesIO(image_data)
+        )
+
+        media_id = media.media_id
+
+        print(f"Image uploadée avec succès.")
+        print(f"Media ID : {media_id}")
+
+        # ====================================================
+        # 5. Récupérer le token OAuth 2 actuel
+        # ====================================================
+
         access_token, refresh_token = load_tokens()
 
         if not access_token:
             return {
                 "success": False,
                 "step": "authentication",
-                "error": "no_access_token"
+                "error": "no_oauth2_access_token"
             }, 401
 
-        image_data = image.read()
-        total_bytes = len(image_data)
-        media_type = image.content_type or "image/jpeg"
-
-        print("========================================")
-        print("Début publication avec photo")
-        print(f"Image : {image.filename}")
-        print(f"Type : {media_type}")
-        print(f"Taille : {total_bytes} octets")
-
         # ====================================================
-        # 1. INIT
-        # ====================================================
-
-        init_response = requests.post(
-            "https://api.x.com/2/media/upload",
-            headers={
-                "Authorization": f"Bearer {access_token}"
-            },
-            data={
-                "command": "INIT",
-                "media_type": media_type,
-                "total_bytes": str(total_bytes),
-                "media_category": "tweet_image"
-            },
-            timeout=60
-        )
-
-        print(f"MEDIA INIT HTTP : {init_response.status_code}")
-        print(f"MEDIA INIT X : {init_response.text}")
-        print(f"MEDIA INIT HEADERS : {dict(init_response.headers)}")
-
-        if init_response.status_code not in (200, 201):
-            return {
-                "success": False,
-                "step": "media_init",
-                "status_code": init_response.status_code,
-                "x_response": init_response.text
-            }, init_response.status_code
-
-        init_data = init_response.json()
-        media_id = init_data["data"]["id"]
-
-        print(f"Media ID : {media_id}")
-
-        # ====================================================
-        # 2. APPEND
-        # ====================================================
-
-        append_response = requests.post(
-            "https://api.x.com/2/media/upload",
-            headers={
-                "Authorization": f"Bearer {access_token}"
-            },
-            files={
-                "media": (
-                    image.filename,
-                    image_data,
-                    media_type
-                )
-            },
-            data={
-                "command": "APPEND",
-                "media_id": media_id,
-                "segment_index": "0"
-            },
-            timeout=60
-        )
-
-        print(f"MEDIA APPEND HTTP : {append_response.status_code}")
-        print(f"MEDIA APPEND X : {append_response.text}")
-
-        if append_response.status_code not in (200, 201):
-            return {
-                "success": False,
-                "step": "media_append",
-                "media_id": media_id,
-                "status_code": append_response.status_code,
-                "x_response": append_response.text
-            }, append_response.status_code
-
-        # ====================================================
-        # 3. FINALIZE
-        # ====================================================
-
-        finalize_response = requests.post(
-            "https://api.x.com/2/media/upload",
-            headers={
-                "Authorization": f"Bearer {access_token}"
-            },
-            files={
-                "media": (
-                    "",
-                    b"",
-                    "application/octet-stream"
-                )
-            },
-            data={
-                "command": "FINALIZE",
-                "media_id": media_id
-            },
-            timeout=60
-        )
-
-        print(f"MEDIA FINALIZE HTTP : {finalize_response.status_code}")
-        print(f"MEDIA FINALIZE X : {finalize_response.text}")
-
-        if finalize_response.status_code not in (200, 201):
-            return {
-                "success": False,
-                "step": "media_finalize",
-                "media_id": media_id,
-                "status_code": finalize_response.status_code,
-                "x_response": finalize_response.text
-            }, finalize_response.status_code
-
-        # ====================================================
-        # 4. CRÉER LE POST
+        # 6. Créer le post avec OAuth 2
         # ====================================================
 
         post_response = requests.post(
-            URL_POST,
+            POST_URL,
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
@@ -444,7 +392,7 @@ def publish_photo():
             json={
                 "text": text,
                 "media": {
-                    "media_ids": [media_id]
+                    "media_ids": [str(media_id)]
                 }
             },
             timeout=60
@@ -454,15 +402,64 @@ def publish_photo():
         print(f"POST PHOTO X : {post_response.text}")
         print("========================================")
 
+        # ====================================================
+        # 7. Si OAuth 2 est expiré → refresh
+        # ====================================================
+
+        if post_response.status_code in (401, 403):
+
+            print("Token OAuth 2 refusé.")
+            print("Tentative de renouvellement...")
+
+            new_access_token = refresh_access_token()
+
+            if new_access_token:
+
+                post_response = requests.post(
+                    POST_URL,
+                    headers={
+                        "Authorization": f"Bearer {new_access_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "text": text,
+                        "media": {
+                            "media_ids": [str(media_id)]
+                        }
+                    },
+                    timeout=60
+                )
+
+                print(
+                    f"Nouvelle tentative POST PHOTO : "
+                    f"{post_response.status_code}"
+                )
+
+                print(
+                    f"Nouvelle réponse X : "
+                    f"{post_response.text}"
+                )
+
         return {
             "success": post_response.status_code in (200, 201),
             "step": "create_post",
-            "media_id": media_id,
+            "media_id": str(media_id),
             "status_code": post_response.status_code,
             "x_response": post_response.text
         }, post_response.status_code
 
+    except tweepy.TweepyException as e:
+
+        print(f"ERREUR TWEEPY : {e}")
+
+        return {
+            "success": False,
+            "step": "media_upload",
+            "error": str(e)
+        }, 500
+
     except Exception as e:
+
         print(f"ERREUR PHOTO : {e}")
 
         return {
