@@ -266,7 +266,6 @@ def callback():
             "error": "Access token absent."
         }, 400
 
-    # Sauvegarde permanente dans PostgreSQL
     saved = save_tokens(
         access_token,
         refresh_token
@@ -289,9 +288,15 @@ def callback():
         "storage": "PostgreSQL",
     }
 
+
+# ============================================================
+# PUBLICATION PHOTO X
+# ============================================================
+
 @app.route("/publish-photo", methods=["POST"])
 def publish_photo():
     try:
+
         # ====================================================
         # 1. Vérifier l'image
         # ====================================================
@@ -363,7 +368,7 @@ def publish_photo():
 
         media_id = media.media_id
 
-        print(f"Image uploadée avec succès.")
+        print("Image uploadée avec succès.")
         print(f"Media ID : {media_id}")
 
         # ====================================================
@@ -371,11 +376,12 @@ def publish_photo():
         # ====================================================
 
         client = tweepy.Client(
-    consumer_key=X_CONSUMER_KEY,
-    consumer_secret=X_CONSUMER_SECRET,
-    access_token=X_ACCESS_TOKEN,
-    access_token_secret=X_ACCESS_TOKEN_SECRET
+            consumer_key=X_CONSUMER_KEY,
+            consumer_secret=X_CONSUMER_SECRET,
+            access_token=X_ACCESS_TOKEN,
+            access_token_secret=X_ACCESS_TOKEN_SECRET
         )
+
         # ====================================================
         # 6. Publier le post avec la photo
         # ====================================================
@@ -417,25 +423,10 @@ def publish_photo():
             "error": str(e)
         }, 500
 
-    except tweepy.TweepyException as e:
 
-        print(f"ERREUR TWEEPY : {e}")
-
-        return {
-            "success": False,
-            "step": "media_upload",
-            "error": str(e)
-        }, 500
-
-    except Exception as e:
-
-        print(f"ERREUR PHOTO : {e}")
-
-        return {
-            "success": False,
-            "step": "exception",
-            "error": str(e)
-        }, 500
+# ============================================================
+# PUBLICATION TEXTE X
+# ============================================================
 
 @app.route("/publish", methods=["POST"])
 def publish():
@@ -528,4 +519,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=5000
-                )
+)
