@@ -453,6 +453,7 @@ def publish_photo():
             "error": str(e)
         }, 500
 
+"""
 @app.route("/test-database")
 def test_database():
 
@@ -463,6 +464,7 @@ def test_database():
         "access_token_present": bool(access_token),
         "refresh_token_present": bool(refresh_token)
     }
+"""
         
 # ============================================================
 # PUBLICATION TEXTE X
