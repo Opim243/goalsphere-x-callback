@@ -452,6 +452,17 @@ def publish_photo():
             "step": "exception",
             "error": str(e)
         }, 500
+
+@app.route("/test-database")
+def test_database():
+
+    access_token, refresh_token = load_tokens()
+
+    return {
+        "database": "connected",
+        "access_token_present": bool(access_token),
+        "refresh_token_present": bool(refresh_token)
+    }
         
 # ============================================================
 # PUBLICATION TEXTE X
